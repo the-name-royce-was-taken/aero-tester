@@ -30,7 +30,7 @@ function loadSTL(file){if(!file)return;setstatus('Loading STL…');let fr=new Fi
 $('file').onchange=e=>loadSTL(e.target.files[0]);$('uploadbox').ondragover=e=>e.preventDefault();$('uploadbox').ondrop=e=>{e.preventDefault();loadSTL(e.dataTransfer.files[0]);};
 $('fit').onclick=fit;$('reset').onclick=()=>{['rx','ry','rz'].forEach(id=>$(id).value=0);orient=[0,0,0];if(model)model.rotation.set(0,0,0);cache.clear();setstatus('Orientation reset; solve again')};
 $('preset').onchange=()=>{if($('preset').value)[$('rx').value,$('ry').value,$('rz').value]=$('preset').value.split(',')};
-$('apply').onclick=()=>{if(!model)return alert('Load an STL first');orient=[$('rx').value*1,$('ry').value*1,$('rz').value*1];model.rotation.set(...orient.map(v=>THREE.MathUtils.degToRad(v)));cache.clear();setstatus('Orientation applied — solve when ready')};
+$('apply').onclick=()=>{if(!model)return alert('Load an STL first');orient=[$('rx').value*1,$('ry').value*1,$('rz').value*1];model.rotation.set(...orient.map(v=>THREE.MathUtils.degToRad(v)));model.position.set(0,0,0);cache.clear();setstatus('Orientation applied — recalculating 3D airflow');solve()};
 $('speed').oninput=()=>{$('speedval').textContent=$('speed').value+' m/s'};$('res').oninput=()=>{$('resval').textContent=$('res').value};
 $('wire').onchange=()=>{if(model)model.material.wireframe=$('wire').checked;if(field)drawField()};$('traces').onchange=()=>{if(field)drawField()};$('pressuremode').onchange=()=>{if(field)drawField()};
 function resizeFlow(){let r=fc.getBoundingClientRect();flowRenderer.setSize(Math.max(1,r.width),Math.max(1,r.height),false);flowCamera.aspect=Math.max(1,r.width)/Math.max(1,r.height);flowCamera.updateProjectionMatrix()}
