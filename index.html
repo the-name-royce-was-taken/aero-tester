@@ -7,6 +7,7 @@
 <section class="panel"><div class="head">Visualization</div><div class="pad checks"><label><input id="traces" type="checkbox" checked> Streamlines</label><label><input id="pressuremode" type="checkbox"> Pressure coloring</label><label><input id="wire" type="checkbox"> Wireframe mesh</label></div></section>
 <section class="panel"><div class="head">About the solver</div><div class="pad note">2D D2Q9 lattice-Boltzmann (BGK) flow solver using the STL's X–Z projected triangle mask. Solver runs on demand, not during camera motion. This is a low-order visualization tool, not validated 3D CFD: the mesh projection, turbulence, internal geometry, and forces are not engineering-accurate.</div></section>
 </aside></main><div class="footer">All mesh processing and solving are local to this browser. For orientation changes, click Apply rotation and then Solve airflow. Camera orbit and display toggles do not trigger solver runs.</div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
