@@ -24,9 +24,9 @@ const flowLight=new THREE.DirectionalLight(0xffffff,2);flowLight.position.set(3,
 let flowModel=null,flowLines=[];
 function draw3(){requestAnimationFrame(draw3);orbit.update();renderer.render(scene,camera);flowOrbit.update();flowRenderer.render(flowScene,flowCamera)}draw3();
 function resize(){renderer.setSize(c.clientWidth,c.clientHeight);camera.aspect=c.clientWidth/c.clientHeight;camera.updateProjectionMatrix();resizeFlow()}window.addEventListener('resize',resize);resize();
-function fit(){if(!model)return;model.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(model),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),largest=Math.max(size.x,size.y,size.z)||1,scale=2/largest;model.scale.setScalar(scale);model.position.set(-center.x*scale,-center.y*scale,-center.z*scale);model.updateMatrixWorld(true);camera.position.set(3,2.5,4);camera.near=.01;camera.far=100;camera.updateProjectionMatrix();orbit.target.set(0,0,0);orbit.update()}
+function fit(){if(!model)return;model.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(model),size=box.getSize(new THREE.Vector3()),span=Math.max(size.x,size.y,size.z,1);camera.position.set(span*1.7,span*1.25,span*1.9);camera.near=.01;camera.far=span*30;camera.updateProjectionMatrix();orbit.target.set(0,0,0);orbit.update()}
 function setstatus(txt){$('status').textContent=txt}
-function loadSTL(file){if(!file)return;setstatus('Loading STL…');let fr=new FileReader();fr.onload=()=>{try{const geo=new STLLoader().parse(fr.result);geo.computeVertexNormals();if(model){scene.remove(model);model.geometry.dispose()}model=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x9bb8cc,metalness:.25,roughness:.4,wireframe:$('wire').checked}));scene.add(model);rawTriangles=[];let p=geo.attributes.position;for(let i=0;i<p.count;i+=3)rawTriangles.push([[p.getX(i),p.getY(i),p.getZ(i)],[p.getX(i+1),p.getY(i+1),p.getZ(i+1)],[p.getX(i+2),p.getY(i+2),p.getZ(i+2)]]);$('modelName').textContent=file.name;$('meshinfo').textContent=p.count.toLocaleString()+' vertices · '+Math.floor(p.count/3).toLocaleString()+' triangles · '+(file.size/1e6).toFixed(2)+' MB';field=null;cache.clear();$('empty').style.display='grid';orient=[0,0,0];['rx','ry','rz'].forEach(id=>$(id).value=0);fit();setstatus('STL ready');}catch(err){alert('STL error: '+err.message);setstatus('Load failed')}};fr.readAsArrayBuffer(file)}
+function loadSTL(file){if(!file)return;setstatus('Loading STL…');let fr=new FileReader();fr.onload=()=>{try{const geo=new STLLoader().parse(fr.result);geo.computeVertexNormals();const sourceBox=new THREE.Box3().setFromBufferAttribute(geo.attributes.position),sourceCenter=sourceBox.getCenter(new THREE.Vector3()),sourceSize=sourceBox.getSize(new THREE.Vector3()),sourceSpan=Math.max(sourceSize.x,sourceSize.y,sourceSize.z)||1;geo.translate(-sourceCenter.x,-sourceCenter.y,-sourceCenter.z);geo.scale(2/sourceSpan,2/sourceSpan,2/sourceSpan);geo.computeVertexNormals();if(model){scene.remove(model);model.geometry.dispose()}model=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x9bb8cc,metalness:.25,roughness:.4,wireframe:$('wire').checked}));scene.add(model);rawTriangles=[];let p=geo.attributes.position;for(let i=0;i<p.count;i+=3)rawTriangles.push([[p.getX(i),p.getY(i),p.getZ(i)],[p.getX(i+1),p.getY(i+1),p.getZ(i+1)],[p.getX(i+2),p.getY(i+2),p.getZ(i+2)]]);$('modelName').textContent=file.name;$('meshinfo').textContent=p.count.toLocaleString()+' vertices · '+Math.floor(p.count/3).toLocaleString()+' triangles · '+(file.size/1e6).toFixed(2)+' MB';field=null;cache.clear();$('empty').style.display='grid';orient=[0,0,0];['rx','ry','rz'].forEach(id=>$(id).value=0);fit();setstatus('STL ready');}catch(err){alert('STL error: '+err.message);setstatus('Load failed')}};fr.readAsArrayBuffer(file)}
 $('file').onchange=e=>loadSTL(e.target.files[0]);$('uploadbox').ondragover=e=>e.preventDefault();$('uploadbox').ondrop=e=>{e.preventDefault();loadSTL(e.dataTransfer.files[0]);};
 $('fit').onclick=fit;$('reset').onclick=()=>{['rx','ry','rz'].forEach(id=>$(id).value=0);orient=[0,0,0];if(model)model.rotation.set(0,0,0);cache.clear();setstatus('Orientation reset; solve again')};
 $('preset').onchange=()=>{if($('preset').value)[$('rx').value,$('ry').value,$('rz').value]=$('preset').value.split(',')};
@@ -35,50 +35,47 @@ $('speed').oninput=()=>{$('speedval').textContent=$('speed').value+' m/s'};$('re
 $('wire').onchange=()=>{if(model)model.material.wireframe=$('wire').checked;if(field)drawField()};$('traces').onchange=()=>{if(field)drawField()};$('pressuremode').onchange=()=>{if(field)drawField()};
 function resizeFlow(){let r=fc.getBoundingClientRect();flowRenderer.setSize(Math.max(1,r.width),Math.max(1,r.height),false);flowCamera.aspect=Math.max(1,r.width)/Math.max(1,r.height);flowCamera.updateProjectionMatrix()}
 $('run').onclick=()=>solve();
-function solve(){if(!model)return alert('Upload an STL first');const nx=+$ ('res').value,ny=Math.floor(nx*.55),key=[nx,ny,$('mode').value,$('speed').value,...orient].join('|');if(cache.has(key)){field=cache.get(key);drawField();metrics();$('empty').style.display='none';$('flowStatus').textContent='Cached result';setstatus('Cached flow field');return}setstatus('Solving…');$('run').disabled=true;let worker=new Worker(URL.createObjectURL(new Blob([solverCode],{type:'text/javascript'})));worker.onmessage=e=>{field=e.data;worker.terminate();$('run').disabled=false;if(field.error){setstatus('Solver error');alert(field.error);return}cache.set(key,field);$('empty').style.display='none';$('flowStatus').textContent='Solved · '+field.nx+'×'+field.ny;setstatus('Simulation finished');metrics();drawField()};worker.onerror=e=>{worker.terminate();$('run').disabled=false;setstatus('Solver error');alert('Solver error '+e.message)};worker.postMessage({triangles:rotatedTris(),nx,ny,mode:$('mode').value,speed:+$('speed').value})}
+function solve(){if(!model)return alert('Upload an STL first');const nx=Math.max(36,Math.min(64,Math.round(+$('res').value*.3))),ny=Math.max(24,Math.round(nx*.7)),nz=ny,key=[nx,ny,nz,$('mode').value,$('speed').value,...orient].join('|');if(cache.has(key)){field=cache.get(key);drawField();metrics();$('empty').style.display='none';$('flowStatus').textContent='Cached result';setstatus('Cached flow field');return}setstatus('Solving…');$('run').disabled=true;let worker=new Worker(URL.createObjectURL(new Blob([solverCode],{type:'text/javascript'})));worker.onmessage=e=>{field=e.data;worker.terminate();$('run').disabled=false;if(field.error){setstatus('Solver error');alert(field.error);return}cache.set(key,field);$('empty').style.display='none';$('flowStatus').textContent='Solved · '+field.nx+'×'+field.ny;setstatus('Simulation finished');metrics();drawField()};worker.onerror=e=>{worker.terminate();$('run').disabled=false;setstatus('Solver error');alert('Solver error '+e.message)};worker.postMessage({triangles:rotatedTris(),nx,ny,nz,mode:$('mode').value,speed:+$('speed').value})}
 function rotatedTris(){let e=new THREE.Euler(...orient.map(v=>THREE.MathUtils.degToRad(v)),'XYZ'),m=new THREE.Matrix4().makeRotationFromEuler(e);return rawTriangles.map(t=>t.map(v=>new THREE.Vector3(...v).applyMatrix4(m).toArray()))}
 function metrics(){if(!field)return;$('max').textContent=field.maxV.toFixed(2)+' m/s';$('avg').textContent=field.avgV.toFixed(2)+' m/s';$('pressure').textContent=field.pMin.toFixed(1)+'…'+field.pMax.toFixed(1)+' Pa';$('iter').textContent=field.steps.toLocaleString();$('resultTag').textContent=field.mode+' · '+field.nx+'×'+field.ny}
 function palette(t){t=Math.min(1,Math.max(0,t));return t<.5?[Math.round(50+150*t),Math.round(80+340*t),255]:[255,Math.round(255-380*(t-.5)),Math.round(90-160*(t-.5))]}
 function drawField(){
-if(!model)return;
-if(flowModel){flowScene.remove(flowModel);flowModel.geometry=null;flowModel=null}
+if(!model||!field||!field.u3)return;
+if(flowModel){flowScene.remove(flowModel);flowModel=null}
 for(const line of flowLines){flowScene.remove(line);line.geometry.dispose();line.material.dispose()}flowLines=[];
 flowModel=new THREE.Mesh(model.geometry,new THREE.MeshStandardMaterial({color:0x9bb8cc,metalness:.2,roughness:.48,wireframe:$('wire').checked}));
 flowModel.position.copy(model.position);flowModel.rotation.copy(model.rotation);flowModel.scale.copy(model.scale);flowScene.add(flowModel);
-const box=new THREE.Box3().setFromObject(flowModel),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),span=Math.max(size.x,size.y,size.z,.2),margin=span*.85;
-flowCamera.position.set(center.x+span*2.5,center.y+span*1.65,center.z+span*2.5);flowCamera.near=.01;flowCamera.far=span*20;flowCamera.updateProjectionMatrix();flowOrbit.target.copy(center);flowOrbit.update();
-const pos=flowModel.geometry.attributes.position,mat=flowModel.matrixWorld,samples=[],stride=Math.max(1,Math.floor(pos.count/750));
-for(let i=0;i<pos.count;i+=3*stride){
- const a=new THREE.Vector3(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(mat);
- const b=new THREE.Vector3(pos.getX(Math.min(i+1,pos.count-1)),pos.getY(Math.min(i+1,pos.count-1)),pos.getZ(Math.min(i+1,pos.count-1))).applyMatrix4(mat);
- const c=new THREE.Vector3(pos.getX(Math.min(i+2,pos.count-1)),pos.getY(Math.min(i+2,pos.count-1)),pos.getZ(Math.min(i+2,pos.count-1))).applyMatrix4(mat);
- const n=new THREE.Vector3().subVectors(b,a).cross(new THREE.Vector3().subVectors(c,a)).normalize();
- samples.push({p:a.add(b).add(c).multiplyScalar(1/3),n});
-}
-const influence=span*.2,step=span/90,rows=7,cols=7;
-if($('traces').checked)for(let j=0;j<rows;j++)for(let k=0;k<cols;k++){
- let y=box.min.y-size.y*.2+(j/(rows-1))*size.y*1.4,z=box.min.z-size.z*.2+(k/(cols-1))*size.z*1.4;
- let p=new THREE.Vector3(box.min.x-margin,y,z),points=[];
- for(let it=0;it<230&&p.x<box.max.x+margin;it++){
-  points.push(p.clone());let vx=1,vy=0,vz=0;
-  for(const q of samples){let dx=p.x-q.p.x,dy=p.y-q.p.y,dz=p.z-q.p.z,d2=dx*dx+dy*dy+dz*dz+1e-8;
-   if(d2<influence*influence*5){let d=Math.sqrt(d2),weight=Math.exp(-d2/(2*influence*influence))*1.1;vx+=dx/d*weight;vy+=dy/d*weight;vz+=dz/d*weight}
-  }
-  p.addScaledVector(new THREE.Vector3(vx,vy,vz).normalize(),step);
- }
- if(points.length>3){let geo=new THREE.BufferGeometry().setFromPoints(points),color=$('pressuremode').checked?new THREE.Color().setHSL(.04+(j+k)/(rows+cols)*.12,.9,.62):new THREE.Color().setHSL(.49+(j%3)*.025,.7,.72),line=new THREE.Line(geo,new THREE.LineBasicMaterial({color,transparent:true,opacity:.85}));flowScene.add(line);flowLines.push(line)}
-}
-$('empty').style.display='none';$('flowStatus').textContent='3D streamlines · '+flowLines.length+' paths';
+flowCamera.position.set(4,3.1,4);flowCamera.near=.01;flowCamera.far=40;flowCamera.updateProjectionMatrix();flowOrbit.target.set(0,0,0);flowOrbit.update();
+if($('traces').checked){const nx=field.nx,ny=field.ny,nz=field.nz,idx=(x,y,z)=>(z*ny+y)*nx+x;
+const sample=(x,y,z)=>{let ix=Math.max(1,Math.min(nx-2,Math.round(x))),iy=Math.max(1,Math.min(ny-2,Math.round(y))),iz=Math.max(1,Math.min(nz-2,Math.round(z))),q=idx(ix,iy,iz);return [field.u3[q],field.v3[q],field.w3[q]]};
+for(let j=0;j<9;j++)for(let k=0;k<9;k++){let y=2+j*(ny-4)/8,z=2+k*(nz-4)/8,x=2,points=[];
+for(let it=0;it<260&&x<nx-2;it++){let ix=Math.round(x),iy=Math.round(y),iz=Math.round(z),q=idx(ix,iy,iz);if(field.solid[q])break;
+points.push(new THREE.Vector3((x/(nx-1)-.5)*4,(y/(ny-1)-.5)*3,(z/(nz-1)-.5)*3));
+let v=sample(x,y,z),m=Math.hypot(...v)||1e-8;x+=v[0]/m*.65;y+=v[1]/m*.65;z+=v[2]/m*.65;if(y<1||y>ny-2||z<1||z>nz-2)break}
+if(points.length>3){let g=new THREE.BufferGeometry().setFromPoints(points),line=new THREE.Line(g,new THREE.LineBasicMaterial({color:0x75e6d2,transparent:true,opacity:.8}));flowScene.add(line);flowLines.push(line)}}}
+$('empty').style.display='none';$('flowStatus').textContent='3D D3Q19 solve · '+field.nx+'×'+field.ny+'×'+field.nz;
 }
 function devicePixel(){return Math.max(1,devicePixelRatio)}
 const solverCode=`onmessage=e=>{try{postMessage(solve(e.data))}catch(err){postMessage({error:err.message})}};
-const cx=[0,1,0,-1,0,1,-1,-1,1],cy=[0,0,1,0,-1,1,1,-1,-1],w=[4/9,1/9,1/9,1/9,1/9,1/36,1/36,1/36,1/36],op=[0,3,4,1,2,7,8,5,6];
-function solve(d){let {triangles,nx,ny,mode,speed}=d,mask=new Uint8Array(nx*ny),x0=nx/2,y0=ny/2,scale=Math.min(nx*.66,ny*.66);let minx=Infinity,maxx=-Infinity,minz=Infinity,maxz=-Infinity;for(let t of triangles)for(let v of t){minx=Math.min(minx,v[0]);maxx=Math.max(maxx,v[0]);minz=Math.min(minz,v[2]);maxz=Math.max(maxz,v[2])}let span=Math.max(maxx-minx,maxz-minz,1e-5),s=scale/span;const map=p=>[x0+(p[0]-(minx+maxx)/2)*s,y0-(p[2]-(minz+maxz)/2)*s];
-for(let t of triangles){let [a,b,c]=t.map(map),minX=Math.max(1,Math.floor(Math.min(a[0],b[0],c[0]))),maxX=Math.min(nx-2,Math.ceil(Math.max(a[0],b[0],c[0]))),minY=Math.max(1,Math.floor(Math.min(a[1],b[1],c[1]))),maxY=Math.min(ny-2,Math.ceil(Math.max(a[1],b[1],c[1]))),area=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);if(Math.abs(area)<1e-9)continue;for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){let px=x+.5,py=y+.5,q1=(px-a[0])*(b[1]-a[1])-(py-a[1])*(b[0]-a[0]),q2=(px-b[0])*(c[1]-b[1])-(py-b[1])*(c[0]-b[0]),q3=(px-c[0])*(a[1]-c[1])-(py-c[1])*(a[0]-c[0]);if(q1*q2>=0&&q2*q3>=0)mask[y*nx+x]=1}}
-if(mode==='internal'){let inv=new Uint8Array(mask.length);for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){let k=y*nx+x;inv[k]=mask[k]?0:1}mask.set(inv);for(let x=0;x<nx;x++){mask[x]=mask[(ny-1)*nx+x]=1}for(let y=0;y<ny;y++){mask[y*nx]=mask[y*nx+nx-1]=1}}
-let n=nx*ny,F=new Float32Array(n*9),N=new Float32Array(n*9),tau=.78,om=1/tau,uin=Math.min(.09,speed/190);for(let k=0;k<n;k++)for(let q=0;q<9;q++)F[k*9+q]=w[q];let steps=420;
-for(let it=0;it<steps;it++){for(let y=1;y<ny-1;y++)for(let x=1;x<nx-1;x++){let k=y*nx+x;if(mask[k])continue;let rho=0,ux=0,uy=0;for(let q=0;q<9;q++){let f=F[k*9+q];rho+=f;ux+=f*cx[q];uy+=f*cy[q]}if(!rho)rho=1;ux/=rho;uy/=rho;if(x===1)ux=uin;let u2=ux*ux+uy*uy;for(let q=0;q<9;q++){let cu=3*(cx[q]*ux+cy[q]*uy),eq=w[q]*rho*(1+cu+cu*cu*.5-1.5*u2);N[k*9+q]=F[k*9+q]*(1-om)+om*eq}}
-F.fill(0);for(let y=1;y<ny-1;y++)for(let x=1;x<nx-1;x++){let k=y*nx+x;if(mask[k])continue;for(let q=0;q<9;q++){let xx=x+cx[q],yy=y+cy[q],kk=yy*nx+xx;if(xx<1||xx>=nx-1||yy<1||yy>=ny-1||mask[kk])F[k*9+op[q]]+=N[k*9+q];else F[kk*9+q]+=N[k*9+q]}}}
-let u=new Float32Array(n),v=new Float32Array(n),p=new Float32Array(n),maxV=0,sum=0,count=0,pMin=Infinity,pMax=-Infinity;for(let y=1;y<ny-1;y++)for(let x=1;x<nx-1;x++){let k=y*nx+x;if(mask[k])continue;let rho=0,ux=0,uy=0;for(let q=0;q<9;q++){let f=F[k*9+q];rho+=f;ux+=f*cx[q];uy+=f*cy[q]}if(rho){ux/=rho;uy/=rho;if(x===1)ux=uin;u[k]=ux*speed/uin;v[k]=uy*speed/uin;let vel=Math.hypot(u[k],v[k]),pressure=(rho-1)*speed*speed*.45;p[k]=pressure;maxV=Math.max(maxV,vel);sum+=vel;count++;pMin=Math.min(pMin,pressure);pMax=Math.max(pMax,pressure)}}if(!isFinite(pMin))pMin=pMax=0;return {nx,ny,mask,u,v,p,maxV,avgV:sum/(count||1),pMin,pMax,steps,mode}}
+const C=[[0,0,0],[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1],[1,1,0],[-1,-1,0],[1,-1,0],[-1,1,0],[1,0,1],[-1,0,-1],[1,0,-1],[-1,0,1],[0,1,1],[0,-1,-1],[0,1,-1],[0,-1,1]];
+const W=[1/3,1/18,1/18,1/18,1/18,1/18,1/18,1/36,1/36,1/36,1/36,1/36,1/36,1/36,1/36,1/36,1/36,1/36,1/36],O=[0,2,1,4,3,6,5,8,7,10,9,12,11,14,13,16,15,18,17];
+function solve(d){const {triangles,nx,ny,nz,speed}=d,N=nx*ny*nz,Q=19,idx=(x,y,z)=>(z*ny+y)*nx+x,solid=new Uint8Array(N);
+for(const t of triangles){const a=t.map(v=>[(v[0]*.5+.5)*(nx-1),(v[1]/3+.5)*(ny-1),(v[2]/3+.5)*(nz-1)]),A=a[0],B=a[1],D=a[2],ab=Math.hypot(B[0]-A[0],B[1]-A[1],B[2]-A[2]),ac=Math.hypot(D[0]-A[0],D[1]-A[1],D[2]-A[2]),steps=Math.max(1,Math.ceil(Math.max(ab,ac)*2));
+for(let i=0;i<=steps;i++)for(let j=0;j<=steps-i;j++){let u=i/steps,v=j/steps,x=Math.round(A[0]+u*(B[0]-A[0])+v*(D[0]-A[0])),y=Math.round(A[1]+u*(B[1]-A[1])+v*(D[1]-A[1])),z=Math.round(A[2]+u*(B[2]-A[2])+v*(D[2]-A[2]));if(x>0&&x<nx-1&&y>0&&y<ny-1&&z>0&&z<nz-1)solid[idx(x,y,z)]=1}}
+const seen=new Uint8Array(N),queue=new Int32Array(N);let head=0,tail=0;
+for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++)if(x===0||x===nx-1||y===0||y===ny-1||z===0||z===nz-1){let k=idx(x,y,z);if(!solid[k]&&!seen[k]){seen[k]=1;queue[tail++]=k}}
+while(head<tail){let k=queue[head++],x=k%nx,y=Math.floor(k/nx)%ny,z=Math.floor(k/(nx*ny));for(let q=1;q<Q;q++){let xx=x+C[q][0],yy=y+C[q][1],zz=z+C[q][2];if(xx<0||xx>=nx||yy<0||yy>=ny||zz<0||zz>=nz)continue;let kk=idx(xx,yy,zz);if(!solid[kk]&&!seen[kk]){seen[kk]=1;queue[tail++]=kk}}}
+for(let k=0;k<N;k++)if(!seen[k])solid[k]=1;
+for(let z=0;z<nz;z++)for(let y=0;y<ny;y++){solid[idx(0,y,z)]=1;solid[idx(nx-1,y,z)]=1}
+let F=new Float32Array(N*Q),G=new Float32Array(N*Q),tau=.78,om=1/tau,uin=Math.min(.055,speed/240);
+for(let k=0;k<N;k++)for(let q=0;q<Q;q++)F[k*Q+q]=W[q];
+const eq=(rho,ux,uy,uz,q)=>{let cu=C[q][0]*ux+C[q][1]*uy+C[q][2]*uz,u2=ux*ux+uy*uy+uz*uz;return W[q]*rho*(1+3*cu+4.5*cu*cu-1.5*u2)};
+for(let it=0;it<90;it++){G.fill(0);
+for(let z=1;z<nz-1;z++)for(let y=1;y<ny-1;y++)for(let x=1;x<nx-1;x++){let k=idx(x,y,z);if(solid[k])continue;let rho=0,ux=0,uy=0,uz=0;for(let q=0;q<Q;q++){let f=F[k*Q+q];rho+=f;ux+=f*C[q][0];uy+=f*C[q][1];uz+=f*C[q][2]}if(rho<=0)continue;ux/=rho;uy/=rho;uz/=rho;if(x===1)ux=uin;
+for(let q=0;q<Q;q++){let post=F[k*Q+q]*(1-om)+om*eq(rho,ux,uy,uz,q),xx=x+C[q][0],yy=y+C[q][1],zz=z+C[q][2],kk=idx(xx,yy,zz);if(solid[kk])G[k*Q+O[q]]+=post;else G[kk*Q+q]+=post}}
+let tmp=F;F=G;G=tmp}
+const u3=new Float32Array(N),v3=new Float32Array(N),w3=new Float32Array(N),p=new Float32Array(N);let maxV=0,sum=0,count=0,pMin=Infinity,pMax=-Infinity;
+for(let z=1;z<nz-1;z++)for(let y=1;y<ny-1;y++)for(let x=1;x<nx-1;x++){let k=idx(x,y,z);if(solid[k])continue;let rho=0,ux=0,uy=0,uz=0;for(let q=0;q<Q;q++){let f=F[k*Q+q];rho+=f;ux+=f*C[q][0];uy+=f*C[q][1];uz+=f*C[q][2]}if(rho>0){ux/=rho;uy/=rho;uz/=rho;if(x===1)ux=uin;u3[k]=ux*speed/uin;v3[k]=uy*speed/uin;w3[k]=uz*speed/uin;let vel=Math.hypot(u3[k],v3[k],w3[k]),pressure=(rho-1)*speed*speed*.45;p[k]=pressure;maxV=Math.max(maxV,vel);sum+=vel;count++;pMin=Math.min(pMin,pressure);pMax=Math.max(pMax,pressure)}}
+if(!isFinite(pMin))pMin=pMax=0;return {nx,ny,nz,solid,u3,v3,w3,p,maxV,avgV:sum/(count||1),pMin,pMax,steps:90,mode:d.mode}}
 `;
 </script></body></html>
